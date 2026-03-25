@@ -16,15 +16,15 @@
 ## アーキテクチャ
 
 Codex (Agent)
-├─ SKILL: site-check-analyzer
 ├─ AGENTS.md (基本方針)
-├─ rules/xxx.md (ルール定義)
+├─ .codex/rules/*.md (ルール定義)
+├─ src/site-check-analyzer.ts (実行入口)
 ↓
-Playwright MCP (Browser Automation)
+Playwright
 ↓
 Webサイト
 
-Playwright MCPは、ブラウザ操作（遷移・クリック・取得）をMCP経由でLLMから実行可能にするサーバーです。 :contentReference[oaicite:0]{index=0}
+本リポジトリでは `src/site-check-analyzer.ts` を入口にして Playwright ベースのチェックを実行します。
 
 ---
 
@@ -43,23 +43,37 @@ project-root/
 ├─ README.md
 ├─ AGENTS.md
 ├─ .codex/
-│  └─ rules/
-│  │  └─ xxx.md
+│  ├─ rules/
+│  │  └─ resuls-reports.md
 │  └─ skills/
 │     └─ site-check-analyzer/
-│        ├─ SKILL.md
-│        ├─ templates/
-│        │  ├─ report.md
-│        │  └─ ignore-rules.yaml
-│        └─ config.yaml
+│        └─ template/
+│           └─ report.md
+├─ src/
+│  └─ site-check-analyzer.ts
 └─ reports/
 ```
 
 ## 実行方法
 
-スキルをCallして以下を実行するのみ
+Playwright を利用できる環境で、`site-check-analyzer` 入口を実行します。
+
 ```bash
-/site-check-analyzer https://example.comをチェックして
+npm run site-check-analyzer -- check \
+  --url https://example.com/ \
+  --output reports \
+  --max-pages 100 \
+  --max-depth 4 \
+  --sample-limit 10
+```
+
+差分比較は JSON レポート 2 本を入力にします。
+
+```bash
+npm run site-check-analyzer -- diff \
+  --before reports/example.com/result_example_com_2026-03-24.json \
+  --after reports/example.com/result_example_com_2026-03-25.json \
+  --output reports/example.com/diff_2026-03-25.md
 ```
 
 ## チェック内容
