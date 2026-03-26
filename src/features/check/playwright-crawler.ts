@@ -13,6 +13,7 @@ import {
 import { buildReportPaths } from '../../shared/report-path'
 import {
   buildFindingComparisonKey,
+  type ExcludedFinding,
   JUDGEMENTS,
   type PageReport,
   type SiteFinding,
@@ -20,6 +21,7 @@ import {
   type UncheckedScope,
 } from '../../shared/report-schema'
 import { applyCrawlPolicy, type CrawlCandidate } from './crawl-policy'
+import { buildPageFindings } from './page-findings'
 
 export interface CrawlSiteInput {
   url: string
@@ -37,7 +39,6 @@ interface QueueItem {
 }
 
 const AWS_RISK_PATTERN = /(cloudfront|s3|elasticloadbalancing|alb|api gateway|csp|cors|mixed content|accessdenied)/i
-const NOISE_PATTERN = /(analytics|gtm|favicon|tag manager|beacon)/i
 
 export async function crawlSite(input: CrawlSiteInput): Promise<SiteReport> {
   const browser = await chromium.launch()
@@ -60,6 +61,7 @@ async function crawlWithBrowser(browser: Browser, input: CrawlSiteInput): Promis
 
   const visitedUrls = new Set<string>()
   const findingsByKey = new Map<string, SiteFinding>()
+  const excludedFindingsByKey = new Map<string, ExcludedFinding>()
   const pages: PageReport[] = []
   const uncheckedScopes: UncheckedScope[] = []
   const queue: QueueItem[] = [{ url: targetUrl.toString(), depth: 0, sourceUrl: targetUrl.toString() }]
@@ -74,6 +76,7 @@ async function crawlWithBrowser(browser: Browser, input: CrawlSiteInput): Promis
     const pageResult = await inspectPage(browser, current, screenshotDir, domain)
     pages.push(pageResult.page)
     mergeFindings(findingsByKey, pageResult.findings)
+    mergeExcludedFindings(excludedFindingsByKey, pageResult.excludedFindings)
     mergeUncheckedScopes(uncheckedScopes, pageResult.uncheckedScopes)
 
     const policy = applyCrawlPolicy({
@@ -98,6 +101,7 @@ async function crawlWithBrowser(browser: Browser, input: CrawlSiteInput): Promis
       overallJudgement: findingsByKey.size > 0 ? JUDGEMENTS.review : JUDGEMENTS.ok,
     },
     findings: [...findingsByKey.values()],
+    excludedFindings: [...excludedFindingsByKey.values()],
     pages,
     uncheckedScopes,
   }
@@ -111,6 +115,7 @@ async function inspectPage(
 ): Promise<{
   page: PageReport
   findings: SiteFinding[]
+  excludedFindings: ExcludedFinding[]
   links: CrawlCandidate[]
   uncheckedScopes: UncheckedScope[]
 }> {
@@ -138,11 +143,12 @@ async function inspectPage(
     await page.screenshot({ path: screenshotPath, fullPage: true })
     const links = await extractLinks(page, item, domain)
     const pageReport = buildPageReport(item, screenshotPath, warnings, errors, pageErrors, failedRequests, httpErrors)
-    const findings = buildPageFindings(pageReport)
+    const pageFindings = buildPageFindings(pageReport, domain)
 
     return {
       page: pageReport,
-      findings,
+      findings: pageFindings.findings,
+      excludedFindings: pageFindings.excludedFindings,
       links,
       uncheckedScopes: [],
     }
@@ -169,6 +175,7 @@ async function inspectPage(
     return {
       page: pageReport,
       findings,
+      excludedFindings: [],
       links: [],
       uncheckedScopes: [],
     }
@@ -271,87 +278,6 @@ function buildPageReport(
   }
 }
 
-function buildPageFindings(page: PageReport): SiteFinding[] {
-  const findings: SiteFinding[] = []
-
-  for (const error of page.console.error) {
-    findings.push(
-      createFinding({
-        severity: classifyErrorSeverity(error),
-        category: 'console-error',
-        title: 'Console error detected',
-        pagePath: page.path,
-        evidence: error,
-        cause: 'A runtime error was emitted in the browser console.',
-        screenshotPath: page.screenshotPath,
-        migrationRisk: detectMigrationRisk(error),
-      }),
-    )
-  }
-
-  for (const warning of page.console.warning) {
-    findings.push(
-      createFinding({
-        severity: NOISE_PATTERN.test(warning) ? 'low' : 'medium',
-        category: 'console-warning',
-        title: 'Console warning detected',
-        pagePath: page.path,
-        evidence: warning,
-        cause: 'A browser warning was emitted while rendering the page.',
-        screenshotPath: page.screenshotPath,
-        migrationRisk: detectMigrationRisk(warning),
-      }),
-    )
-  }
-
-  for (const failedRequest of page.failedRequests) {
-    findings.push(
-      createFinding({
-        severity: classifyRequestSeverity(failedRequest),
-        category: 'failed-request',
-        title: 'Failed request detected',
-        pagePath: page.path,
-        evidence: failedRequest,
-        cause: 'A required network request failed while loading the page.',
-        screenshotPath: page.screenshotPath,
-        migrationRisk: detectMigrationRisk(failedRequest),
-      }),
-    )
-  }
-
-  for (const pageError of page.pageErrors) {
-    findings.push(
-      createFinding({
-        severity: classifyErrorSeverity(pageError),
-        category: 'page-error',
-        title: 'Page error detected',
-        pagePath: page.path,
-        evidence: pageError,
-        cause: 'An uncaught runtime exception was emitted by the page.',
-        screenshotPath: page.screenshotPath,
-        migrationRisk: detectMigrationRisk(pageError),
-      }),
-    )
-  }
-
-  for (const httpError of page.httpErrors) {
-    findings.push(
-      createFinding({
-        severity: classifyRequestSeverity(httpError),
-        category: 'http-error',
-        title: 'HTTP error response detected',
-        pagePath: page.path,
-        evidence: httpError,
-        cause: 'A network response returned an HTTP error status while loading the page.',
-        screenshotPath: page.screenshotPath,
-        migrationRisk: detectMigrationRisk(httpError),
-      }),
-    )
-  }
-
-  return findings
-}
-
 function createFinding(
   input: Omit<SiteFinding, 'id'>,
 ): SiteFinding {
@@ -359,26 +285,6 @@ function createFinding(
     ...input,
     id: buildFindingComparisonKey(input),
   }
-}
-
-function classifyErrorSeverity(error: string): SiteFinding['severity'] {
-  if (/chunk|hydrate|uncaught|syntaxerror|referenceerror|typeerror/i.test(error)) {
-    return 'critical'
-  }
-
-  return 'high'
-}
-
-function classifyRequestSeverity(request: string): SiteFinding['severity'] {
-  if (/\.(css|js)(\?|$)/i.test(request) || / 5\d\d\b/.test(request)) {
-    return 'critical'
-  }
-
-  if (/\.(png|jpg|jpeg|gif|webp|svg|woff2?)(\?|$)/i.test(request)) {
-    return 'medium'
-  }
-
-  return 'high'
 }
 
 function detectMigrationRisk(text: string): boolean {
@@ -393,6 +299,15 @@ function buildScreenshotPath(screenshotDir: string, pageUrl: string): string {
 }
 
 function mergeFindings(target: Map<string, SiteFinding>, findings: SiteFinding[]): void {
+  for (const finding of findings) {
+    target.set(buildFindingComparisonKey(finding), finding)
+  }
+}
+
+function mergeExcludedFindings(
+  target: Map<string, ExcludedFinding>,
+  findings: ExcludedFinding[],
+): void {
   for (const finding of findings) {
     target.set(buildFindingComparisonKey(finding), finding)
   }

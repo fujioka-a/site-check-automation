@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { runCheckCommand } from '../../../src/features/check/command'
-import { createFinding, createSiteReport } from '../../support/report-fixtures'
+import { createExcludedFinding, createFinding, createSiteReport } from '../../support/report-fixtures'
 
 describe('runCheckCommand', () => {
   it('passes crawl limits through the command and writes both markdown and json artifacts', async () => {
@@ -13,6 +13,12 @@ describe('runCheckCommand', () => {
             title: 'App shell failed to render',
             evidence: 'main.js returned 500.',
             cause: 'Broken asset deployment',
+          }),
+        ],
+        excludedFindings: [
+          createExcludedFinding({
+            title: 'External font request failed',
+            reason: '外部ドメインのフォント取得失敗は評価対象外',
           }),
         ],
       }),
@@ -47,6 +53,12 @@ describe('runCheckCommand', () => {
         summary: expect.objectContaining({
           overallJudgement: '問題あり',
         }),
+        excludedFindings: [
+          expect.objectContaining({
+            title: 'External font request failed',
+            reason: '外部ドメインのフォント取得失敗は評価対象外',
+          }),
+        ],
       }),
     )
     expect(writeArtifact).toHaveBeenNthCalledWith(
@@ -62,6 +74,7 @@ describe('runCheckCommand', () => {
       expect.objectContaining({
         format: 'json',
         path: 'reports/example.com/result_example_com_2026-03-25.json',
+        contents: expect.stringContaining('"excludedFindings"'),
       }),
     )
   })

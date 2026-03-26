@@ -20,6 +20,10 @@ export interface SiteFinding {
   migrationRisk?: boolean
 }
 
+export interface ExcludedFinding extends SiteFinding {
+  reason: string
+}
+
 export function buildFindingComparisonKey(
   finding: Pick<SiteFinding, 'pagePath' | 'category' | 'title' | 'evidence'>,
 ): string {
@@ -59,6 +63,7 @@ export interface SiteReport {
     overallJudgement: OverallJudgement
   }
   findings: SiteFinding[]
+  excludedFindings: ExcludedFinding[]
   pages: PageReport[]
   uncheckedScopes: UncheckedScope[]
 }

@@ -1,7 +1,13 @@
-import type { SiteFinding, SiteReport, UncheckedScope } from '../../src/shared/report-schema'
+import type {
+  ExcludedFinding,
+  SiteFinding,
+  SiteReport,
+  UncheckedScope,
+} from '../../src/shared/report-schema'
 
 type SiteReportOverride = Partial<SiteReport>
 type SiteFindingOverride = Partial<SiteFinding>
+type ExcludedFindingOverride = Partial<ExcludedFinding>
 type UncheckedScopeOverride = Partial<UncheckedScope>
 
 export function createSiteReport(overrides: SiteReportOverride = {}): SiteReport {
@@ -32,6 +38,7 @@ export function createSiteReport(overrides: SiteReportOverride = {}): SiteReport
       },
     ],
     uncheckedScopes: [],
+    excludedFindings: [],
     ...overrides,
   }
 }
@@ -56,6 +63,24 @@ export function createUncheckedScope(overrides: UncheckedScopeOverride = {}): Un
     pagePath: '/news',
     reason: 'sample-limit',
     detail: 'Representative sampling capped sibling links at 10 entries.',
+    ...overrides,
+  }
+}
+
+export function createExcludedFinding(
+  overrides: ExcludedFindingOverride = {},
+): ExcludedFinding {
+  return {
+    id: 'excluded-finding-1',
+    severity: 'low',
+    category: 'failed-request',
+    title: 'External font request failed',
+    pagePath: '/',
+    evidence: 'https://fonts.gstatic.com/s/example.woff2 (net::ERR_BLOCKED_BY_CLIENT)',
+    cause: 'The page depends on a third-party font resource that is unavailable outside normal browser conditions.',
+    reason: '外部ドメインのフォント取得失敗は評価対象外',
+    screenshotPath: 'reports/example.com/screenshots/home.png',
+    migrationRisk: false,
     ...overrides,
   }
 }

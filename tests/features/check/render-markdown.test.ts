@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import { renderCheckMarkdown } from '../../../src/features/check/render-markdown'
-import { createFinding, createSiteReport, createUncheckedScope } from '../../support/report-fixtures'
+import {
+  createExcludedFinding,
+  createFinding,
+  createSiteReport,
+  createUncheckedScope,
+} from '../../support/report-fixtures'
 
 describe('renderCheckMarkdown', () => {
   it('renders the required sections for summary, severity buckets, page details, and recommendations', () => {
@@ -82,5 +87,36 @@ describe('renderCheckMarkdown', () => {
     expect(markdown).toContain('## Limitations')
     expect(markdown).toContain('/products')
     expect(markdown).toContain('Representative sampling capped sibling links at 10 entries.')
+  })
+
+  it('renders exclusion counts in the summary and lists evaluation exclusions with evidence, cause, and exclusion reason', () => {
+    const report = createSiteReport({
+      summary: {
+        pagesVisited: 1,
+        totalFindings: 0,
+        overallJudgement: '問題なし',
+      },
+      findings: [],
+      excludedFindings: [
+        createExcludedFinding({
+          title: 'External font request failed',
+          evidence: 'https://fonts.gstatic.com/s/inter/v1/font.woff2 (net::ERR_ABORTED)',
+          cause: 'The page depends on a third-party font resource that is unavailable outside normal browser conditions.',
+          reason: '外部ドメインのフォント取得失敗は評価対象外',
+        }),
+      ],
+    })
+
+    const markdown = renderCheckMarkdown(report)
+
+    expect(markdown).toContain('- Total findings: 0')
+    expect(markdown).toContain('- Evaluation exclusions: 1')
+    expect(markdown).toContain('## Evaluation Exclusions')
+    expect(markdown).toContain('External font request failed')
+    expect(markdown).toContain('根拠: https://fonts.gstatic.com/s/inter/v1/font.woff2 (net::ERR_ABORTED)')
+    expect(markdown).toContain(
+      '原因推定: The page depends on a third-party font resource that is unavailable outside normal browser conditions.',
+    )
+    expect(markdown).toContain('評価除外理由: 外部ドメインのフォント取得失敗は評価対象外')
   })
 })
